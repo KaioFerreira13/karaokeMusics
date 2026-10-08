@@ -1,0 +1,43 @@
+@import "tailwindcss";
+
+@theme {
+  --font-sans: "Outfit", ui-sans-serif, system-ui, sans-serif;
+  --color-ink: #0a0912;
+  --color-accent: #00e5ff;
+  --color-violet: #8b5cf6;
+  --animate-shimmer: shimmer 1.8s linear infinite;
+  --animate-float-in: float-in 0.45s cubic-bezier(0.22, 1, 0.36, 1) both;
+
+  @keyframes shimmer {
+    from { background-position: 200% 0; }
+    to { background-position: -200% 0; }
+  }
+  @keyframes float-in {
+    from { opacity: 0; transform: translateY(12px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+}
+
+html {
+  color-scheme: dark;
+}
+
+body {
+  margin: 0;
+  min-height: 100vh;
+  background-color: var(--color-ink);
+  background-image:
+    radial-gradient(60rem 40rem at 15% -10%, rgb(139 92 246 / 0.22), transparent 60%),
+    radial-gradient(50rem 36rem at 95% 5%, rgb(0 229 255 / 0.14), transparent 60%);
+  background-attachment: fixed;
+  color: #ecebf5;
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+  }
+}

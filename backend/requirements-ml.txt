@@ -1,0 +1,4 @@
+﻿# Requer Python 3.12 (whisperx não suporta 3.14)
+demucs>=4.1
+soundfile>=0.12
+whisperx>=3.8

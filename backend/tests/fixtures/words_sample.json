@@ -1,0 +1,15 @@
+[
+  {"start": 1.00, "end": 1.40, "word": "Never"},
+  {"start": 1.45, "end": 1.80, "word": "gonna"},
+  {"start": 1.85, "end": 2.20, "word": "give"},
+  {"start": 2.25, "end": 2.60, "word": "you"},
+  {"start": 2.65, "end": 4.50, "word": "up,"},
+  {"start": 4.60, "end": 4.90, "word": "never"},
+  {"start": 4.95, "end": 5.30, "word": "gonna"},
+  {"start": 5.35, "end": 5.70, "word": "let"},
+  {"start": 5.75, "end": 6.10, "word": "you"},
+  {"start": 6.15, "end": 7.00, "word": "down."},
+  {"start": 12.00, "end": 12.40, "word": "Você"},
+  {"start": 12.45, "end": 12.90, "word": "não"},
+  {"start": 12.95, "end": 13.60, "word": "sabe"}
+]
