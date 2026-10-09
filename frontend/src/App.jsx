@@ -14,11 +14,15 @@ export default function App() {
   const [selectedId, setSelectedId] = useState(null)
   const [starting, setStarting] = useState(false)
   const [startError, setStartError] = useState(null)
+  const [previewId, setPreviewId] = useState(null)
 
   const { job, connectionError } = useJob(jobId)
   const running = starting || (!!jobId && (!job || !['completed', 'failed'].includes(job.status)))
 
+  const togglePreview = (id) => setPreviewId((cur) => (cur === id ? null : id))
+
   const handleSearch = async (query) => {
+    setPreviewId(null)
     setSearching(true)
     setSearchError(null)
     try {
@@ -32,12 +36,13 @@ export default function App() {
   }
 
   const handleGenerate = async (song) => {
+    setPreviewId(null)
     setStarting(true)
     setStartError(null)
     setSelectedId(song.id)
     setJobId(null)
     try {
-      const created = await createKaraokeJob(song.id, song.title)
+      const created = await createKaraokeJob(song.id, song.title, song.uploader)
       setJobId(created.job_id)
     } catch (err) {
       setStartError(err.message)
@@ -123,6 +128,8 @@ export default function App() {
                 onGenerate={handleGenerate}
                 busy={running}
                 selected={selectedId === song.id}
+                playing={previewId === song.id}
+                onTogglePreview={togglePreview}
               />
             ))}
           </div>

@@ -33,9 +33,9 @@ def ass_color(hex_rgb: str, alpha: int = 0) -> str:
 @dataclass
 class KaraokeStyle:
     font: str = "Arial"  # use "Montserrat" se estiver instalada
-    font_size: int = 72
-    fill_color: str = "#00E5FF"  # ciano: cor "cantada" (PrimaryColour)
-    base_color: str = "#D9D9D9"  # cinza claro: cor "ainda não cantada" (SecondaryColour)
+    font_size: int = 76
+    fill_color: str = "#D8FF2E"  # verde-limão: cor "cantada" (PrimaryColour)
+    base_color: str = "#FFFFFF"  # branco: cor "ainda não cantada" (SecondaryColour)
     outline_color: str = "#000000"
     shadow_color: str = "#000000"
     outline: float = 4.0
@@ -44,15 +44,24 @@ class KaraokeStyle:
     margin_h: int = 80
     res_x: int = 1920
     res_y: int = 1080
+    # Bloco da letra (centro) e título (pílula no topo), em coordenadas de 1920x1080
+    lyrics_center_y: int = 575
+    row_max_chars: int = 34  # acima disso o verso quebra em 2 linhas
+    title_color: str = "#8FE9FF"
+    title_size: int = 54
+    pill_x: int = 510
+    pill_y: int = 75
+    pill_w: int = 900
+    pill_h: int = 100
 
 
 @dataclass
 class LayoutOptions:
-    max_words: int = 7  # 6-8 palavras por linha
-    max_chars: int = 42
-    max_gap: float = 1.2  # pausa maior que isso quebra a linha
-    lead_in: float = 0.4  # a linha aparece antes da 1ª palavra
-    tail: float = 0.4  # e permanece depois da última
+    max_words: int = 10  # um verso = uma linha da letra (até 2 linhas na tela)
+    max_chars: int = 60
+    max_gap: float = 1.2  # pausa maior que isso quebra o verso
+    lead_in: float = 0.4  # (mantido por compatibilidade)
+    tail: float = 0.4  # o verso permanece depois da última palavra
     mode: str = "kf"  # "kf" (preenchimento suave) ou "k" (troca instantânea)
 
 
@@ -114,7 +123,19 @@ def _escape(text: str) -> str:
     return re.sub(r"[\r\n]+", " ", text)
 
 
-def _line_text(line: list[dict], line_start: float, mode: str) -> str:
+def _split_rows(words: list[str], max_chars: int) -> int | None:
+    """Índice da última palavra da 1ª linha para quebrar o verso em 2 linhas equilibradas."""
+    if len(words) < 2 or len(" ".join(words)) <= max_chars:
+        return None
+    best, best_diff = None, None
+    for i in range(len(words) - 1):
+        diff = abs(len(" ".join(words[: i + 1])) - len(" ".join(words[i + 1 :])))
+        if best_diff is None or diff < best_diff:
+            best, best_diff = i, diff
+    return best
+
+
+def _line_text(line: list[dict], line_start: float, mode: str, break_after: int | None = None) -> str:
     """Monta {\\kfN}palavra ... com tempos acumulados sem drift de arredondamento."""
     tag = "kf" if mode == "kf" else "k"
     parts: list[str] = []
@@ -126,16 +147,53 @@ def _line_text(line: list[dict], line_start: float, mode: str) -> str:
         if gap > 0:  # silêncio antes da palavra (inclui o lead-in)
             parts.append(f"{{\\k{gap}}}")
         dur = end_cs - start_cs
-        suffix = " " if i < len(line) - 1 else ""
+        if i == len(line) - 1:
+            suffix = ""
+        else:
+            suffix = "\\N" if i == break_after else " "
         parts.append(f"{{\\{tag}{dur}}}{_escape(w['word'])}{suffix}")
         cursor = end_cs
     return "".join(parts)
+
+
+def _static_text(line: list[dict], break_after: int | None) -> str:
+    out = []
+    for i, w in enumerate(line):
+        out.append(_escape(w["word"]))
+        if i < len(line) - 1:
+            out.append("\\N" if i == break_after else " ")
+    return "".join(out)
+
+
+def _pill_events(style: KaraokeStyle, title: str, artist: str | None) -> list[str]:
+    """Pílula neon no topo com "Título - Artista" (vetor ASS + texto)."""
+    w, h, r = style.pill_w, style.pill_h, style.pill_h // 2
+    shape = (
+        f"m {r} 0 l {w - r} 0 b {w - r // 2} 0 {w} {r // 2} {w} {r} "
+        f"b {w} {h - r // 2} {w - r // 2} {h} {w - r} {h} l {r} {h} "
+        f"b {r // 2} {h} 0 {h - r // 2} 0 {r} b 0 {r // 2} {r // 2} 0 {r} 0"
+    )
+    edge = ass_color("#7FE3FF")
+    end = "9:59:59.99"
+    label = f"{title} - {artist}" if artist else title
+    if len(label) > 70:
+        label = label[:67].rstrip() + "..."
+    size = max(30, min(style.title_size, int(style.pill_w * 0.88 / (0.52 * max(len(label), 1)))))
+    cx, cy = style.pill_x + w // 2, style.pill_y + h // 2
+    return [
+        f"Dialogue: 0,0:00:00.00,{end},Title,,0,0,0,,"
+        f"{{\\an7\\pos({style.pill_x},{style.pill_y})\\p1\\bord4\\3c{edge}\\1c&H201008&\\1a&H60&\\shad0\\blur3}}{shape}{{\\p0}}",
+        f"Dialogue: 1,0:00:00.00,{end},Title,,0,0,0,,"
+        f"{{\\an5\\pos({cx},{cy})\\fs{size}\\1c{ass_color(style.title_color)}\\bord2\\3c{edge}\\blur1}}{_escape(label)}",
+    ]
 
 
 def build_ass(
     words: list[dict],
     style: KaraokeStyle | None = None,
     opts: LayoutOptions | None = None,
+    title: str | None = None,
+    artist: str | None = None,
 ) -> str:
     style = style or KaraokeStyle()
     opts = opts or LayoutOptions()
@@ -152,25 +210,41 @@ PlayResY: {style.res_y}
 
 [V4+ Styles]
 Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
-Style: Karaoke,{style.font},{style.font_size},{ass_color(style.fill_color)},{ass_color(style.base_color)},{ass_color(style.outline_color)},{ass_color(style.shadow_color, 96)},-1,0,0,0,100,100,0,0,1,{style.outline:g},{style.shadow:g},2,{style.margin_h},{style.margin_h},{style.margin_v},1
+Style: Karaoke,{style.font},{style.font_size},{ass_color(style.fill_color)},{ass_color(style.base_color)},{ass_color(style.outline_color)},{ass_color(style.shadow_color, 96)},-1,0,0,0,100,100,0,0,1,{style.outline:g},{style.shadow:g},5,{style.margin_h},{style.margin_h},{style.margin_v},1
+Style: Title,{style.font},{style.title_size},{ass_color(style.title_color)},{ass_color(style.title_color)},{ass_color(style.outline_color)},{ass_color(style.shadow_color, 96)},0,0,0,0,100,100,0,0,1,0,0,7,0,0,0,1
 
 [Events]
 Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 """
 
-    lines = group_words(words, opts)
     events: list[str] = []
+    if title:
+        events += _pill_events(style, title, artist)
+
+    # Cada verso aparece em destaque (karaokê: branco -> verde-limão) com o próximo verso
+    # em branco logo abaixo. O verso fica na tela desde o fim do anterior até o fim da sua
+    # última palavra (a pausa instrumental serve de pré-visualização).
+    lines = group_words(words, opts)
+    cx, cy = style.res_x // 2, style.lyrics_center_y
+    white = ass_color(style.base_color)
     prev_end = 0.0
     for i, line in enumerate(lines):
         first, last = line[0]["start"], line[-1]["end"]
-        start = max(first - opts.lead_in, prev_end, 0.0)
-        end = last + opts.tail
-        if i + 1 < len(lines):  # nunca sobrepor a próxima linha
-            end = max(last, min(end, lines[i + 1][0]["start"]))
+        start = prev_end
+        end = last + (opts.tail if i + 1 == len(lines) else 0.0)
+        if i + 1 < len(lines):
+            end = max(last, min(last + opts.tail, lines[i + 1][0]["start"]))
+        end = max(end, start + 0.1)
         prev_end = end
-        text = _line_text(line, start, opts.mode)
+
+        brk = _split_rows([w["word"] for w in line], style.row_max_chars)
+        text = _line_text(line, start, opts.mode, brk)
+        if i + 1 < len(lines):
+            nxt = lines[i + 1]
+            nbrk = _split_rows([w["word"] for w in nxt], style.row_max_chars)
+            text += f"\\N{{\\1c{white}}}{_static_text(nxt, nbrk)}"
         events.append(
-            f"Dialogue: 0,{_fmt_time(start)},{_fmt_time(end)},Karaoke,,0,0,0,,{text}"
+            f"Dialogue: 2,{_fmt_time(start)},{_fmt_time(end)},Karaoke,,0,0,0,,{{\\an5\\pos({cx},{cy})}}{text}"
         )
     return header + "\n".join(events) + "\n"
 
@@ -180,6 +254,8 @@ def generate_karaoke_ass(
     output_path: str | Path | None = None,
     style: KaraokeStyle | None = None,
     opts: LayoutOptions | None = None,
+    title: str | None = None,
+    artist: str | None = None,
 ) -> Path:
     """Lê o JSON de palavras e salva karaoke.ass (por padrão ao lado do JSON)."""
     words = load_words(words_json)
@@ -187,7 +263,7 @@ def generate_karaoke_ass(
         raise SubtitleError("Nenhuma palavra válida no JSON.")
     out = Path(output_path) if output_path else Path(words_json).parent / "karaoke.ass"
     out.parent.mkdir(parents=True, exist_ok=True)
-    out.write_text(build_ass(words, style, opts), encoding="utf-8")
+    out.write_text(build_ass(words, style, opts, title, artist), encoding="utf-8")
     return out
 
 

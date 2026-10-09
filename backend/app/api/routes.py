@@ -49,7 +49,7 @@ def download(body: DownloadRequest, background: BackgroundTasks):
 @router.post("/jobs", response_model=JobResponse, status_code=202)
 def create_karaoke_job(body: KaraokeRequest, background: BackgroundTasks):
     """Pipeline completo: download -> separação -> letra -> vídeo final."""
-    job = job_store.create(body.video_id, body.title)
+    job = job_store.create(body.video_id, body.title, body.artist)
     background.add_task(run_karaoke_pipeline, job.job_id, body.video_id)
     return _to_response(job)
 

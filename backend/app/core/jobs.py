@@ -41,6 +41,7 @@ class Job(BaseModel):
     job_id: str
     video_id: str
     title: str | None = None
+    artist: str | None = None
     status: JobStatus = JobStatus.PENDING
     stage: Stage | None = None  # etapa em andamento (None = na fila)
     stage_progress: float = 0.0  # 0-100 dentro da etapa (0 se indeterminado)
@@ -59,8 +60,8 @@ class JobStore:
         self._jobs: dict[str, Job] = {}
         self._lock = threading.Lock()
 
-    def create(self, video_id: str, title: str | None = None) -> Job:
-        job = Job(job_id=uuid.uuid4().hex, video_id=video_id, title=title)
+    def create(self, video_id: str, title: str | None = None, artist: str | None = None) -> Job:
+        job = Job(job_id=uuid.uuid4().hex, video_id=video_id, title=title, artist=artist)
         with self._lock:
             self._jobs[job.job_id] = job
         return job

@@ -1,3 +1,6 @@
+import json
+import re
+import urllib.request
 import shutil
 from pathlib import Path
 
@@ -56,30 +59,150 @@ def _thumbnail(entry: dict) -> str | None:
     return f"https://i.ytimg.com/vi/{entry['id']}/hqdefault.jpg"
 
 
-def search_videos(query: str, limit: int | None = None) -> list[dict]:
-    """Busca sem baixar nada (ytsearchN + extract_flat)."""
-    n = limit or settings.search_results
+# Busca do YouTube Music com o filtro "Músicas" (parâmetro params). O yt-dlp só devolve
+# título/ID nesse modo, então consultamos a API direto para obter artista e duração.
+YTM_SEARCH_URL = "https://music.youtube.com/youtubei/v1/search?prettyPrint=false"
+YTM_SONGS_PARAMS = "EgWKAQIIAWoKEAkQBRAKEAMQBA=="
+MIN_SONG_SECONDS = 60
+MAX_SONG_SECONDS = 10 * 60
+_VIDEO_ID_RE = re.compile(r"^[A-Za-z0-9_-]{11}$")
+_TYPE_LABELS = {"música", "musica", "song", "canção", "vídeo", "video"}
+_DURATION_RE = re.compile(r"^(?:(\d+):)?(\d{1,2}):(\d{2})$")
+
+
+def _parse_duration(text: str) -> int | None:
+    m = _DURATION_RE.match(text.strip())
+    if not m:
+        return None
+    h, mi, s = (int(x or 0) for x in m.groups())
+    return h * 3600 + mi * 60 + s
+
+
+def _walk_items(node):
+    if isinstance(node, dict):
+        if "musicResponsiveListItemRenderer" in node:
+            yield node["musicResponsiveListItemRenderer"]
+        for value in node.values():
+            yield from _walk_items(value)
+    elif isinstance(node, list):
+        for value in node:
+            yield from _walk_items(value)
+
+
+def _parse_ytm_item(item: dict) -> dict | None:
+    video_id = (
+        item.get("playlistItemData", {}).get("videoId")
+        or item.get("overlay", {})
+        .get("musicItemThumbnailOverlayRenderer", {})
+        .get("content", {})
+        .get("musicPlayButtonRenderer", {})
+        .get("playNavigationEndpoint", {})
+        .get("watchEndpoint", {})
+        .get("videoId")
+    )
+    if not video_id or not _VIDEO_ID_RE.match(video_id):
+        return None  # canais, álbuns, playlists não têm videoId de música
+    columns = item.get("flexColumns") or []
+
+    def runs(i: int) -> list[str]:
+        try:
+            cell = columns[i]["musicResponsiveListItemFlexColumnRenderer"]["text"]
+            return [r.get("text", "") for r in cell.get("runs", [])]
+        except (IndexError, KeyError):
+            return []
+
+    title = "".join(runs(0)).strip()
+    # Segunda coluna: Tipo • Artista(s) • Álbum • Duração
+    parts, current = [], []
+    for text in runs(1):
+        if text.strip() == "•":
+            parts.append("".join(current).strip())
+            current = []
+        else:
+            current.append(text)
+    parts.append("".join(current).strip())
+    duration = next((d for p in reversed(parts) if (d := _parse_duration(p))), None)
+    if parts and parts[0].lower() in _TYPE_LABELS:
+        parts = parts[1:]  # remove rótulo de tipo (ex.: "Música"), quando presente
+    artist = parts[0] if parts else None
+    return {"id": video_id, "title": title, "duration": duration, "uploader": artist or None}
+
+
+def _ytm_search(query: str, n: int) -> list[dict]:
+    body = {
+        "context": {"client": {"clientName": "WEB_REMIX", "clientVersion": "1.20250101.01.00", "hl": "pt", "gl": "BR"}},
+        "query": query,
+        "params": YTM_SONGS_PARAMS,
+    }
+    req = urllib.request.Request(
+        YTM_SEARCH_URL,
+        data=json.dumps(body).encode(),
+        headers={
+            "Content-Type": "application/json",
+            "User-Agent": "Mozilla/5.0",
+            "Origin": "https://music.youtube.com",
+        },
+    )
+    with urllib.request.urlopen(req, timeout=15) as res:
+        data = json.load(res)
+    seen: set[str] = set()
+    out = []
+    for item in _walk_items(data):
+        song = _parse_ytm_item(item)
+        if song and song["id"] not in seen:
+            seen.add(song["id"])
+            out.append(song)
+        if len(out) >= n:
+            break
+    return out
+
+
+def _is_song_entry(entry: dict | None) -> bool:
+    """Descarta canais, playlists e vídeos fora da duração de uma música (busca comum)."""
+    if not entry or not _VIDEO_ID_RE.match(entry.get("id") or ""):
+        return False
+    if entry.get("_type") == "playlist" or "/channel/" in (entry.get("url") or ""):
+        return False
+    duration = entry.get("duration")
+    return bool(duration) and MIN_SONG_SECONDS <= duration <= MAX_SONG_SECONDS
+
+
+def _youtube_search(query: str, n: int) -> list[dict]:
+    """Reserva: busca comum do YouTube, filtrada."""
     opts = {**_base_opts(), "extract_flat": True, "skip_download": True}
     try:
         with yt_dlp.YoutubeDL(opts) as ydl:
-            info = ydl.extract_info(f"ytsearch{n}:{query}", download=False)
+            info = ydl.extract_info(f"ytsearch{n * 4}:{query}", download=False)
     except (DownloadError, ExtractorError) as exc:
         raise classify_error(str(exc)) from exc
+    out = []
+    for e in (info or {}).get("entries", []):
+        if _is_song_entry(e):
+            out.append(
+                {
+                    "id": e["id"],
+                    "title": e.get("title") or "",
+                    "duration": int(e["duration"]),
+                    "uploader": (e.get("uploader") or e.get("channel") or "").removesuffix(" - Topic") or None,
+                    "thumbnail_url": _thumbnail(e),
+                }
+            )
+        if len(out) >= n:
+            break
+    return out
 
-    results = []
-    for entry in (info or {}).get("entries", [])[:n]:
-        if not entry or not entry.get("id"):
-            continue
-        duration = entry.get("duration")
-        results.append(
-            {
-                "id": entry["id"],
-                "title": entry.get("title") or "",
-                "duration": int(duration) if duration else None,
-                "uploader": entry.get("uploader") or entry.get("channel"),
-                "thumbnail_url": _thumbnail(entry),
-            }
-        )
+
+def search_videos(query: str, limit: int | None = None) -> list[dict]:
+    """Busca somente músicas: YouTube Music (filtro Músicas) com fallback na busca comum filtrada."""
+    n = limit or settings.search_results
+    try:
+        results = _ytm_search(query, n)
+    except (OSError, ValueError):
+        results = []
+    if not results:
+        return _youtube_search(query, n)
+    for r in results:
+        r["thumbnail_url"] = f"https://i.ytimg.com/vi/{r['id']}/hqdefault.jpg"
     return results
 
 

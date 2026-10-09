@@ -29,6 +29,7 @@ class DownloadResponse(BaseModel):
 class KaraokeRequest(BaseModel):
     video_id: str = Field(pattern=VIDEO_ID_PATTERN)
     title: str | None = Field(default=None, max_length=300)
+    artist: str | None = Field(default=None, max_length=300)
 
 
 class JobResponse(BaseModel):

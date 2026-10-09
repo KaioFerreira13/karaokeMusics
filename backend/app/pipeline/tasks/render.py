@@ -30,6 +30,9 @@ logger = logging.getLogger(__name__)
 
 ProgressCallback = Callable[[float], None]  # recebe 0.0 - 100.0
 
+# Fundo padrão do vídeo (backend/assets/background.jpg); se não existir, usa cor sólida.
+DEFAULT_BACKGROUND = Path(__file__).resolve().parents[3] / "assets" / "background.jpg"
+
 
 class RenderError(Exception):
     def __init__(self, message: str, log_tail: str = "") -> None:
@@ -138,6 +141,8 @@ def render_karaoke_video(
     inst = Path(instrumental).resolve()
     ass = Path(subtitles).resolve()
     out = Path(output).resolve()
+    if background is None and DEFAULT_BACKGROUND.is_file():
+        background = DEFAULT_BACKGROUND
     bg = Path(background).resolve() if background else None
     for label, p in (("Instrumental", inst), ("Legenda", ass), ("Fundo", bg)):
         if p is not None and not p.is_file():

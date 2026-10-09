@@ -8,7 +8,7 @@ function formatDuration(seconds) {
   return h ? `${h}:${String(m).padStart(2, '0')}:${s}` : `${m}:${s}`
 }
 
-export function ResultCard({ song, onGenerate, busy, selected, index }) {
+export function ResultCard({ song, onGenerate, busy, selected, index, playing, onTogglePreview }) {
   return (
     <article
       style={{ animationDelay: `${index * 60}ms` }}
@@ -16,7 +16,14 @@ export function ResultCard({ song, onGenerate, busy, selected, index }) {
         selected ? 'border-accent/60 ring-1 ring-accent/30' : 'border-white/10'
       }`}
     >
-      <div className="relative aspect-video overflow-hidden bg-white/5">
+      <button
+        type="button"
+        id={`preview-${song.id}`}
+        onClick={() => onTogglePreview(song.id)}
+        aria-label={playing ? `Pausar prévia de ${song.title}` : `Ouvir prévia de ${song.title}`}
+        aria-pressed={playing}
+        className="relative aspect-video w-full cursor-pointer overflow-hidden bg-white/5 text-left"
+      >
         {song.thumbnail_url && (
           <img
             src={song.thumbnail_url}
@@ -25,10 +32,35 @@ export function ResultCard({ song, onGenerate, busy, selected, index }) {
             className="h-full w-full object-cover transition duration-500 group-hover:scale-105"
           />
         )}
-        <span className="absolute bottom-2 right-2 rounded-md bg-black/70 px-2 py-0.5 text-xs font-medium tabular-nums">
-          {formatDuration(song.duration)}
+        <span
+          className={`absolute inset-0 flex items-center justify-center bg-black/30 transition ${
+            playing ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'
+          }`}
+        >
+          <span className="flex h-12 w-12 items-center justify-center rounded-full bg-accent text-lg text-ink shadow-lg">
+            {playing ? '❚❚' : '▶'}
+          </span>
         </span>
-      </div>
+        {playing && (
+          <span className="absolute bottom-2 left-2 rounded-md bg-accent px-2 py-0.5 text-xs font-semibold text-ink">
+            Tocando prévia…
+          </span>
+        )}
+        {formatDuration(song.duration) !== '--:--' && (
+          <span className="absolute bottom-2 right-2 rounded-md bg-black/70 px-2 py-0.5 text-xs font-medium tabular-nums">
+            {formatDuration(song.duration)}
+          </span>
+        )}
+        {playing && (
+          <iframe
+            title={`Prévia de áudio: ${song.title}`}
+            src={`https://www.youtube.com/embed/${song.id}?autoplay=1&playsinline=1`}
+            allow="autoplay; encrypted-media"
+            tabIndex={-1}
+            className="pointer-events-none absolute h-px w-px opacity-0"
+          />
+        )}
+      </button>
       <div className="flex flex-1 flex-col gap-3 p-4">
         <div className="min-h-[3.25rem]">
           <h3 className="line-clamp-2 text-sm font-semibold leading-snug" title={song.title}>

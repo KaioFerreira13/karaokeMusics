@@ -25,10 +25,10 @@ async function request(path, options) {
 export const searchSongs = (query) =>
   request('/api/search', { method: 'POST', body: JSON.stringify({ query }) })
 
-export const createKaraokeJob = (videoId, title) =>
+export const createKaraokeJob = (videoId, title, artist) =>
   request('/api/jobs', {
     method: 'POST',
-    body: JSON.stringify({ video_id: videoId, title }),
+    body: JSON.stringify({ video_id: videoId, title, artist }),
   })
 
 export const getJob = (jobId) => request(`/api/jobs/${jobId}`)

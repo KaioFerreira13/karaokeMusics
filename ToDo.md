@@ -1,8 +1,10 @@
 ### A fazer
 
-- multiplas renderizações simultaneas
-- melhorar busca, restringir apenas a musicas do yt music e excluir canais dos resultados
-- poder dar play no video como um modal para confirmação do usuario
-- colocar algo de fundo no video gerado
+- melhorar a disposição das letras na tela, didivir corretamente as linhas dos versos, apenas trocar a letra quando toda a ledra ja tiver sido cantada
+- fila de renderizações simultaneas
+- opção de cancelar a criação do video
+- opção de editar manualmente a letra 
+- Área para trocar o diretório do download
+- 
 
 ### Melhorias técnicas

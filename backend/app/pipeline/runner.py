@@ -71,7 +71,11 @@ def run_karaoke_pipeline(job_id: str, video_id: str) -> None:
                     raise StageFailure(
                         ErrorCode.TRANSCRIPTION_FAILED, "Nenhuma letra foi detectada na faixa de voz."
                     )
-                ass = generate_karaoke_ass(job_dir / "words.json", job_dir / "karaoke.ass")
+                job = job_store.get(job_id)
+                ass = generate_karaoke_ass(
+                    job_dir / "words.json", job_dir / "karaoke.ass",
+                    title=job.title if job else None, artist=job.artist if job else None,
+                )
             except (TranscriptionError, SubtitleError) as exc:
                 raise StageFailure(ErrorCode.TRANSCRIPTION_FAILED, str(exc)) from exc
 
