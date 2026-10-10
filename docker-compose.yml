@@ -1,0 +1,38 @@
+services:
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: karaoke_backend
+    ports:
+      - "8000:8000"
+    environment:
+      - KARAOKE_STORAGE_DIR=/app/storage
+      - TORCH_HOME=/root/.cache/torch
+      - HF_HOME=/root/.cache/huggingface
+    volumes:
+      - backend_storage:/app/storage
+      - torch_cache:/root/.cache/torch
+      - hf_cache:/root/.cache/huggingface
+    restart: unless-stopped
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: karaoke_frontend
+    ports:
+      - "5173:5173"
+    environment:
+      - BACKEND_URL=http://backend:8000
+    depends_on:
+      - backend
+    restart: unless-stopped
+
+volumes:
+  backend_storage:
+    name: karaoke_backend_storage
+  torch_cache:
+    name: karaoke_torch_cache
+  hf_cache:
+    name: karaoke_hf_cache
