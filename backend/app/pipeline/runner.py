@@ -113,3 +113,75 @@ def run_karaoke_pipeline(job_id: str, video_id: str) -> None:
 
 def _fail(job_id: str, code: ErrorCode, message: str) -> None:
     job_store.update(job_id, status=JobStatus.FAILED, error_code=code, error_message=message)
+
+
+def rerender_karaoke(job_id: str, new_words: list[dict]) -> None:
+    """Re-executa a etapa de renderização com as palavras e tempos editados manualmente."""
+    import json
+    from app.pipeline.tasks.render import RenderError, render_karaoke_video
+    from app.pipeline.tasks.subtitles import SubtitleError, generate_karaoke_ass
+
+    job_dir = settings.storage_dir / job_id
+    with _run_lock:
+        job = job_store.get(job_id)
+        if not job:
+            return
+
+        job_store.update(
+            job_id,
+            status=JobStatus.RUNNING,
+            stage=Stage.RENDER,
+            stage_progress=0.0,
+            progress=85.0,
+            error_code=None,
+            error_message=None,
+        )
+
+        try:
+            # 1. Salva o words.json atualizado
+            words_file = job_dir / "words.json"
+            words_file.write_text(json.dumps(new_words, ensure_ascii=False, indent=2), encoding="utf-8")
+
+            # 2. Gera novo karaoke.ass
+            ass = generate_karaoke_ass(
+                words_file,
+                job_dir / "karaoke.ass",
+                title=job.title if job else None,
+                artist=job.artist if job else None,
+            )
+
+            # 3. Renderiza o vídeo com instrumental existente
+            instrumental_path = job_dir / "instrumental.wav"
+            if not instrumental_path.is_file():
+                raise StageFailure(ErrorCode.RENDER_FAILED, "Arquivo instrumental.wav não encontrado.")
+
+            def on_progress(pct: float) -> None:
+                job_store.update(
+                    job_id,
+                    stage_progress=pct,
+                    progress=round(85.0 + 15.0 * pct / 100, 1),
+                )
+
+            output_video = job_dir / "output_karaoke.mp4"
+            video = render_karaoke_video(
+                instrumental_path,
+                ass,
+                output_video,
+                on_progress=on_progress,
+            )
+        except (RenderError, SubtitleError) as exc:
+            msg = getattr(exc, "message", str(exc))
+            logger.error("Re-render falhou: %s", msg)
+            _fail(job_id, ErrorCode.RENDER_FAILED, msg)
+        except Exception as exc:  # noqa: BLE001
+            logger.exception("Falha inesperada na re-renderização")
+            _fail(job_id, ErrorCode.RENDER_FAILED, str(exc))
+        else:
+            job_store.update(
+                job_id,
+                status=JobStatus.COMPLETED,
+                progress=100.0,
+                stage_progress=100.0,
+                output_path=str(video),
+            )
+

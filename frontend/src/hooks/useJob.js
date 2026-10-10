@@ -5,12 +5,15 @@ const POLL_MS = 1500
 const FINAL = ['completed', 'failed']
 
 /** Faz polling de /api/jobs/{id} até o job terminar (completed/failed). */
-export function useJob(jobId) {
+export function useJob(jobId, pollKey = 0) {
   const [job, setJob] = useState(null)
   const [connectionError, setConnectionError] = useState(null)
 
   useEffect(() => {
-    if (!jobId) return undefined
+    if (!jobId) {
+      setJob(null)
+      return undefined
+    }
     let cancelled = false
     let timer
 
@@ -33,7 +36,7 @@ export function useJob(jobId) {
       cancelled = true
       clearTimeout(timer)
     }
-  }, [jobId])
+  }, [jobId, pollKey])
 
-  return { job: jobId ? job : null, connectionError }
+  return { job: jobId ? job : null, connectionError, setJob }
 }

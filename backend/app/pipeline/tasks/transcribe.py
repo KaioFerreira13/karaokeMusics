@@ -219,6 +219,7 @@ class WordTranscriber:
             if chunk.size and float(np.sqrt(np.mean(chunk**2))) < min_level:
                 logger.info("Segmento descartado (silêncio): %r", text[:40])
                 continue
+            seg_words[0]["is_verse_start"] = True
             words.extend(seg_words)
 
         return self._normalize_timings(words)
@@ -266,7 +267,12 @@ class WordTranscriber:
                 nxt = words[i + 1]["start"] if i + 1 < len(words) else float("inf")
                 w["end"] = min(w["start"] + min_duration, nxt) if nxt > w["start"] else w["start"]
         return [
-            {"start": round(w["start"], 2), "end": round(w["end"], 2), "word": w["word"]}
+            {
+                "start": round(w["start"], 2),
+                "end": round(w["end"], 2),
+                "word": w["word"],
+                **({"is_verse_start": True} if w.get("is_verse_start") else {}),
+            }
             for w in words
         ]
 

@@ -60,23 +60,73 @@ class JobStore:
         self._jobs: dict[str, Job] = {}
         self._lock = threading.Lock()
 
+    def _persist(self, job: Job) -> None:
+        try:
+            from app.core.config import settings
+            folder = settings.storage_dir / job.job_id
+            if folder.is_dir():
+                (folder / "meta.json").write_text(job.model_dump_json(indent=2), encoding="utf-8")
+        except Exception:
+            pass
+
     def create(self, video_id: str, title: str | None = None, artist: str | None = None) -> Job:
         job = Job(job_id=uuid.uuid4().hex, video_id=video_id, title=title, artist=artist)
         with self._lock:
             self._jobs[job.job_id] = job
+            self._persist(job)
         return job
 
     def get(self, job_id: str) -> Job | None:
         with self._lock:
             job = self._jobs.get(job_id)
+            if not job:
+                from app.core.config import settings
+                folder = settings.storage_dir / job_id
+                if folder.is_dir():
+                    meta = folder / "meta.json"
+                    if meta.is_file():
+                        try:
+                            job = Job.model_validate_json(meta.read_text(encoding="utf-8"))
+                            self._jobs[job_id] = job
+                        except Exception:
+                            job = None
+                    if not job:
+                        mp4 = folder / "output_karaoke.mp4"
+                        has_mp4 = mp4.is_file()
+                        status = JobStatus.COMPLETED if has_mp4 else JobStatus.PENDING
+                        mtime = datetime.fromtimestamp(mp4.stat().st_mtime, tz=timezone.utc) if has_mp4 else _now()
+                        job = Job(
+                            job_id=job_id,
+                            video_id="",
+                            title="Karaokê",
+                            status=status,
+                            progress=100.0 if has_mp4 else 0.0,
+                            output_path=str(mp4) if has_mp4 else None,
+                            updated_at=mtime,
+                        )
+                        self._jobs[job_id] = job
             return job.model_copy() if job else None
 
     def update(self, job_id: str, **fields) -> None:
         with self._lock:
-            job = self._jobs[job_id]
+            job = self._jobs.get(job_id)
+            if not job:
+                from app.core.config import settings
+                folder = settings.storage_dir / job_id
+                if folder.is_dir():
+                    meta = folder / "meta.json"
+                    if meta.is_file():
+                        try:
+                            job = Job.model_validate_json(meta.read_text(encoding="utf-8"))
+                            self._jobs[job_id] = job
+                        except Exception:
+                            job = None
+            if not job:
+                return
             for key, value in fields.items():
                 setattr(job, key, value)
             job.updated_at = _now()
+            self._persist(job)
 
 
 job_store = JobStore()

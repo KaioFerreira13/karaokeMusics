@@ -32,3 +32,12 @@ export const createKaraokeJob = (videoId, title, artist) =>
   })
 
 export const getJob = (jobId) => request(`/api/jobs/${jobId}`)
+
+export const getSubtitles = (jobId) => request(`/api/jobs/${jobId}/subtitles`)
+
+export const updateSubtitles = (jobId, words) =>
+  request(`/api/jobs/${jobId}/subtitles`, {
+    method: 'PUT',
+    body: JSON.stringify({ words }),
+  })
+

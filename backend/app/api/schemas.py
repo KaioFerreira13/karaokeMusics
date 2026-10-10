@@ -43,3 +43,29 @@ class JobResponse(BaseModel):
     video_url: str | None = None
     error_code: ErrorCode | None = None
     error_message: str | None = None
+    updated_at: str | None = None
+
+
+class WordItem(BaseModel):
+    start: float = Field(ge=0.0)
+    end: float = Field(ge=0.0)
+    word: str = Field(min_length=1)
+    is_verse_start: bool | None = None
+
+
+class SubtitlesUpdateRequest(BaseModel):
+    words: list[WordItem]
+
+
+class VerseResponse(BaseModel):
+    index: int
+    start: float
+    end: float
+    text: str
+    words: list[WordItem]
+
+
+class SubtitlesResponse(BaseModel):
+    job_id: str
+    words: list[WordItem]
+    verses: list[VerseResponse]

@@ -1,10 +1,11 @@
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import { createKaraokeJob, searchSongs } from './api'
 import { useJob } from './hooks/useJob'
 import SearchBar from './components/SearchBar'
 import { ResultCard, ResultSkeleton } from './components/ResultCard'
 import PipelinePanel from './components/PipelinePanel'
 import VideoPlayer from './components/VideoPlayer'
+import SubtitleEditor from './components/SubtitleEditor'
 
 export default function App() {
   const [results, setResults] = useState(null)
@@ -15,8 +16,11 @@ export default function App() {
   const [starting, setStarting] = useState(false)
   const [startError, setStartError] = useState(null)
   const [previewId, setPreviewId] = useState(null)
+  const [editingSubtitles, setEditingSubtitles] = useState(false)
+  const [pollKey, setPollKey] = useState(0)
+  const videoRef = useRef(null)
 
-  const { job, connectionError } = useJob(jobId)
+  const { job, connectionError, setJob } = useJob(jobId, pollKey)
   const running = starting || (!!jobId && (!job || !['completed', 'failed'].includes(job.status)))
 
   const togglePreview = (id) => setPreviewId((cur) => (cur === id ? null : id))
@@ -55,6 +59,7 @@ export default function App() {
     setJobId(null)
     setSelectedId(null)
     setStartError(null)
+    setEditingSubtitles(false)
   }
 
   return (
@@ -83,11 +88,36 @@ export default function App() {
           {starting && !job && (
             <p className="text-center text-sm text-white/50">Iniciando pipeline…</p>
           )}
-          {job && job.status === 'completed' && <VideoPlayer job={job} />}
+          {job && job.status === 'completed' && (
+            <>
+              <VideoPlayer
+                job={job}
+                videoRef={videoRef}
+                onOpenEditor={() => setEditingSubtitles((cur) => !cur)}
+              />
+              {editingSubtitles && (
+                <SubtitleEditor
+                  job={job}
+                  onCancel={() => setEditingSubtitles(false)}
+                  onRerenderStarted={(updatedJob) => {
+                    setEditingSubtitles(false)
+                    setJob(updatedJob)
+                    setPollKey((k) => k + 1)
+                  }}
+                  onSeekVideo={(sec) => {
+                    if (videoRef.current) {
+                      videoRef.current.currentTime = sec
+                      videoRef.current.play()
+                    }
+                  }}
+                />
+              )}
+            </>
+          )}
           {job && job.status !== 'completed' && (
             <PipelinePanel job={job} connectionError={connectionError} />
           )}
-          {job && ['completed', 'failed'].includes(job.status) && (
+          {job && ['completed', 'failed'].includes(job.status) && !editingSubtitles && (
             <button
               id="reset-button"
               onClick={reset}

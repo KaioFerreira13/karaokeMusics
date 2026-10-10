@@ -33,7 +33,7 @@ def ass_color(hex_rgb: str, alpha: int = 0) -> str:
 @dataclass
 class KaraokeStyle:
     font: str = "Arial"  # use "Montserrat" se estiver instalada
-    font_size: int = 76
+    font_size: int = 68  # tamanho otimizado para caber versos completos sem cortar
     fill_color: str = "#D8FF2E"  # verde-limão: cor "cantada" (PrimaryColour)
     base_color: str = "#FFFFFF"  # branco: cor "ainda não cantada" (SecondaryColour)
     outline_color: str = "#000000"
@@ -57,11 +57,8 @@ class KaraokeStyle:
 
 @dataclass
 class LayoutOptions:
-    max_words: int = 10  # um verso = uma linha da letra (até 2 linhas na tela)
-    max_chars: int = 60
-    max_gap: float = 1.2  # pausa maior que isso quebra o verso
-    lead_in: float = 0.4  # (mantido por compatibilidade)
-    tail: float = 0.4  # o verso permanece depois da última palavra
+    max_lines_page: int = 2  # máximo de versos por tela (bloco)
+    tail: float = 0.5  # tempo de permanência da tela após cantar a última palavra
     mode: str = "kf"  # "kf" (preenchimento suave) ou "k" (troca instantânea)
 
 
@@ -79,34 +76,101 @@ def load_words(path: str | Path) -> list[dict]:
         try:
             word = str(item["word"]).strip()
             start, end = float(item["start"]), float(item["end"])
+            is_verse = bool(item.get("is_verse_start", False))
         except (KeyError, TypeError, ValueError):
             continue
         if word and end >= start >= 0:
-            words.append({"start": start, "end": end, "word": word})
+            entry = {"start": start, "end": end, "word": word}
+            if is_verse:
+                entry["is_verse_start"] = True
+            words.append(entry)
     words.sort(key=lambda w: (w["start"], w["end"]))
     return words
 
 
-def group_words(words: list[dict], opts: LayoutOptions) -> list[list[dict]]:
-    """Agrupa palavras em linhas confortáveis de ler."""
-    lines: list[list[dict]] = []
-    cur: list[dict] = []
-    chars = 0
+def split_into_verses(words: list[dict]) -> list[list[dict]]:
+    """Divide palavras em versos exatos da canção.
+    
+    Regras estritas:
+    - 2 versos NUNCA podem ficar na mesma linha.
+    - O mesmo verso NUNCA pode ser quebrado entre 2 telas.
+    """
+    verses: list[list[dict]] = []
+    cur_verse: list[dict] = []
+    
+    FUNCTION_WORDS = {"não", "de", "do", "da", "em", "por", "com", "sem", "e", "ou", "mas", "se"}
+
     for w in words:
-        if cur:
-            gap = w["start"] - cur[-1]["end"]
-            prev = cur[-1]["word"]
-            too_long = len(cur) >= opts.max_words or chars + 1 + len(w["word"]) > opts.max_chars
-            sentence_end = bool(re.search(r"[.!?…]$", prev)) and len(cur) >= 3
-            clause_end = bool(re.search(r"[,;:]$", prev)) and len(cur) >= max(4, opts.max_words - 2)
-            if gap > opts.max_gap or too_long or sentence_end or clause_end:
-                lines.append(cur)
-                cur, chars = [], 0
-        cur.append(w)
-        chars += len(w["word"]) + (1 if chars else 0)
-    if cur:
-        lines.append(cur)
-    return lines
+        if cur_verse:
+            prev = cur_verse[-1]
+            gap = round(w["start"] - prev["end"], 2)
+            prev_word = prev["word"].strip()
+            curr_word = w["word"].strip()
+            clean_curr = re.sub(r"^\W+", "", curr_word).lower()
+            
+            is_explicit = w.get("is_verse_start", False)
+            has_terminal_punct = bool(re.search(r"[.!?…]$", prev_word)) and len(cur_verse) >= 3
+            is_cap = curr_word[0].isupper() if curr_word else False
+            
+            can_break = len(cur_verse) >= 3 or has_terminal_punct or is_explicit
+            
+            should_break = False
+            if can_break:
+                if is_explicit or has_terminal_punct:
+                    should_break = True
+                elif gap >= 1.0:  # Pausa respiratória ou instrumental longa entre versos
+                    should_break = True
+                elif is_cap and clean_curr in FUNCTION_WORDS:
+                    # Conectivos em maiúscula só quebram se houver pausa real ou vírgula anterior
+                    if gap >= 0.5 or prev_word.endswith(","):
+                        should_break = True
+                elif is_cap and len(cur_verse) >= 5:  # Palavra em maiúscula após verso substancial
+                    should_break = True
+                elif is_cap and (gap >= 0.25 or prev_word.endswith(",")):
+                    should_break = True
+                elif gap >= 0.75 and len(cur_verse) >= 6:
+                    should_break = True
+
+            if should_break:
+                verses.append(cur_verse)
+                cur_verse = []
+                
+        cur_verse.append(w)
+        
+    if cur_verse:
+        verses.append(cur_verse)
+        
+    return verses
+
+
+def group_into_pages(verses: list[list[dict]], max_verses_per_page: int = 2) -> list[list[list[dict]]]:
+    """Agrupa versos inteiros em telas (páginas).
+    
+    Garante que nenhum verso seja dividido entre telas diferentes.
+    """
+    pages: list[list[list[dict]]] = []
+    cur_page: list[list[dict]] = []
+    
+    for v in verses:
+        v_chars = sum(len(w["word"]) for w in v) + len(v) - 1
+        is_long = v_chars > 55
+        
+        if cur_page:
+            gap = v[0]["start"] - cur_page[-1][-1]["end"]
+            prev_chars = sum(len(w["word"]) for w in cur_page[-1]) + len(cur_page[-1]) - 1
+            prev_is_long = prev_chars > 55
+            
+            # Quebra de tela se atingiu o máximo de versos, pausa instrumental > 2.5s, ou verso muito longo
+            if len(cur_page) >= max_verses_per_page or gap > 2.5 or prev_is_long or is_long:
+                pages.append(cur_page)
+                cur_page = []
+                
+        cur_page.append(v)
+        
+    if cur_page:
+        pages.append(cur_page)
+        
+    return pages
 
 
 def _fmt_time(t: float) -> str:
@@ -121,48 +185,6 @@ def _escape(text: str) -> str:
     """Remove caracteres que o ASS interpretaria como override/linha."""
     text = text.replace("\\", "").replace("{", "(").replace("}", ")")
     return re.sub(r"[\r\n]+", " ", text)
-
-
-def _split_rows(words: list[str], max_chars: int) -> int | None:
-    """Índice da última palavra da 1ª linha para quebrar o verso em 2 linhas equilibradas."""
-    if len(words) < 2 or len(" ".join(words)) <= max_chars:
-        return None
-    best, best_diff = None, None
-    for i in range(len(words) - 1):
-        diff = abs(len(" ".join(words[: i + 1])) - len(" ".join(words[i + 1 :])))
-        if best_diff is None or diff < best_diff:
-            best, best_diff = i, diff
-    return best
-
-
-def _line_text(line: list[dict], line_start: float, mode: str, break_after: int | None = None) -> str:
-    """Monta {\\kfN}palavra ... com tempos acumulados sem drift de arredondamento."""
-    tag = "kf" if mode == "kf" else "k"
-    parts: list[str] = []
-    cursor = 0  # centissegundos já consumidos desde line_start
-    for i, w in enumerate(line):
-        start_cs = max(cursor, round((w["start"] - line_start) * 100))
-        end_cs = max(start_cs, round((w["end"] - line_start) * 100))
-        gap = start_cs - cursor
-        if gap > 0:  # silêncio antes da palavra (inclui o lead-in)
-            parts.append(f"{{\\k{gap}}}")
-        dur = end_cs - start_cs
-        if i == len(line) - 1:
-            suffix = ""
-        else:
-            suffix = "\\N" if i == break_after else " "
-        parts.append(f"{{\\{tag}{dur}}}{_escape(w['word'])}{suffix}")
-        cursor = end_cs
-    return "".join(parts)
-
-
-def _static_text(line: list[dict], break_after: int | None) -> str:
-    out = []
-    for i, w in enumerate(line):
-        out.append(_escape(w["word"]))
-        if i < len(line) - 1:
-            out.append("\\N" if i == break_after else " ")
-    return "".join(out)
 
 
 def _pill_events(style: KaraokeStyle, title: str, artist: str | None) -> list[str]:
@@ -221,28 +243,56 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
     if title:
         events += _pill_events(style, title, artist)
 
-    # Cada verso aparece em destaque (karaokê: branco -> verde-limão) com o próximo verso
-    # em branco logo abaixo. O verso fica na tela desde o fim do anterior até o fim da sua
-    # última palavra (a pausa instrumental serve de pré-visualização).
-    lines = group_words(words, opts)
+    verses = split_into_verses(words)
+    pages = group_into_pages(verses, max_verses_per_page=opts.max_lines_page)
     cx, cy = style.res_x // 2, style.lyrics_center_y
-    white = ass_color(style.base_color)
     prev_end = 0.0
-    for i, line in enumerate(lines):
-        first, last = line[0]["start"], line[-1]["end"]
+    
+    for i, page in enumerate(pages):
+        first_word = page[0][0]
+        last_word = page[-1][-1]
+        
         start = prev_end
-        end = last + (opts.tail if i + 1 == len(lines) else 0.0)
-        if i + 1 < len(lines):
-            end = max(last, min(last + opts.tail, lines[i + 1][0]["start"]))
+        
+        # Determinar o fim da página
+        end = last_word["end"] + opts.tail
+        if i + 1 < len(pages):
+            next_start = pages[i + 1][0][0]["start"]
+            # Se a próxima página está muito perto, emenda direto
+            if next_start - end < 1.0:
+                end = next_start
+        
         end = max(end, start + 0.1)
+        
+        # Se demora muito para começar, avança o start para limpar a tela durante pausas longas
+        if first_word["start"] - start > 2.5:
+            start = max(prev_end, first_word["start"] - 2.5)
+            
         prev_end = end
-
-        brk = _split_rows([w["word"] for w in line], style.row_max_chars)
-        text = _line_text(line, start, opts.mode, brk)
-        if i + 1 < len(lines):
-            nxt = lines[i + 1]
-            nbrk = _split_rows([w["word"] for w in nxt], style.row_max_chars)
-            text += f"\\N{{\\1c{white}}}{_static_text(nxt, nbrk)}"
+        
+        # Construir o texto da página (múltiplas linhas com delays cumulativos)
+        text_parts = []
+        cursor = 0
+        
+        for r, line in enumerate(page):
+            line_parts = []
+            for w, word in enumerate(line):
+                start_cs = max(cursor, round((word["start"] - start) * 100))
+                end_cs = max(start_cs, round((word["end"] - start) * 100))
+                
+                gap = start_cs - cursor
+                if gap > 0:
+                    line_parts.append(f"{{\\k{gap}}}")
+                
+                dur = end_cs - start_cs
+                tag = "kf" if opts.mode == "kf" else "k"
+                suffix = " " if w < len(line) - 1 else ""
+                
+                line_parts.append(f"{{\\{tag}{dur}}}{_escape(word['word'])}{suffix}")
+                cursor = end_cs
+            text_parts.append("".join(line_parts))
+        
+        text = "\\N".join(text_parts)
         events.append(
             f"Dialogue: 2,{_fmt_time(start)},{_fmt_time(end)},Karaoke,,0,0,0,,{{\\an5\\pos({cx},{cy})}}{text}"
         )
@@ -280,7 +330,7 @@ def main() -> None:
     a = p.parse_args()
 
     style = KaraokeStyle(font=a.font, font_size=a.font_size, fill_color=a.fill, base_color=a.base)
-    opts = LayoutOptions(max_words=a.max_words, mode=a.mode)
+    opts = LayoutOptions(mode=a.mode)
     print(generate_karaoke_ass(a.input, a.output, style, opts))
 
 
