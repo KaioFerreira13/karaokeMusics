@@ -5,6 +5,7 @@
 </p>
 
 <p align="center">
+  <img src="https://img.shields.io/badge/Docker-24+-2496ED?style=for-the-badge&logo=docker&logoColor=white" alt="Docker" />
   <img src="https://img.shields.io/badge/Python-3.12-3776AB?style=for-the-badge&logo=python&logoColor=white" alt="Python 3.12" />
   <img src="https://img.shields.io/badge/FastAPI-0.115+-009688?style=for-the-badge&logo=fastapi&logoColor=white" alt="FastAPI" />
   <img src="https://img.shields.io/badge/PyTorch-Demucs_v4-EE4C2C?style=for-the-badge&logo=pytorch&logoColor=white" alt="Demucs" />
@@ -115,7 +116,9 @@ karaokeMusics/
 │   │   └── main.py                  # Ponto de entrada FastAPI com middlewares CORS
 │   ├── assets/                      # Imagem de fundo padrão para os vídeos gerados
 │   ├── requirements.txt             # Dependências da API e utilitários
-│   └── requirements-ml.txt          # Dependências de IA (PyTorch, Demucs, WhisperX)
+│   ├── requirements-ml.txt          # Dependências de IA (PyTorch, Demucs, WhisperX)
+│   ├── Dockerfile                   # Imagem Docker do Backend (Python 3.12 + FFmpeg + ML)
+│   └── .dockerignore
 ├── frontend/
 │   ├── src/
 │   │   ├── components/
@@ -127,7 +130,10 @@ karaokeMusics/
 │   │   ├── App.jsx                  # Orquestração do estado e fluxo de tela
 │   │   └── index.css                # Estilização global com Tailwind CSS
 │   ├── package.json
-│   └── vite.config.js
+│   ├── vite.config.js               # Configuração do Vite com proxy dinâmico
+│   ├── Dockerfile                   # Imagem Docker do Frontend (Node 20 + Vite)
+│   └── .dockerignore
+├── docker-compose.yml               # Orquestração completa de containers e volumes
 └── README.md
 ```
 
@@ -135,57 +141,76 @@ karaokeMusics/
 
 ## ⚙️ Instalação e Execução
 
-### Pré-requisitos
-1. **Python 3.12** instalado *(Nota: WhisperX e algumas dependências de PyTorch possuem melhor compatibilidade no 3.12)*.
+### 🐳 Opção 1: Inicialização com Docker Compose (Recomendado)
+
+Esta é a maneira mais simples, rápida e reproduzível de iniciar o ecossistema completo. Com apenas **um comando**, o Docker constrói e roda o Backend (com Python 3.12, FFmpeg e todos os modelos de IA) e o Frontend (Vite + React 19).
+
+#### Pré-requisitos:
+- [Docker Desktop](https://www.docker.com/products/docker-desktop/) instalado e em execução.
+
+#### Passo a passo:
+Abra o terminal na raiz do projeto (`karaokeMusics`) e execute:
+
+```bash
+docker compose up --build
+```
+
+> 💡 **Persistência e Cache Automático:**  
+> O Docker Compose utiliza volumes dedicados para garantir que você não perca dados nem baixe os modelos repetidamente:
+> - `karaoke_backend_storage`: armazena os arquivos de áudio, transcrições e vídeos renderizados.
+> - `karaoke_torch_cache` e `karaoke_hf_cache`: preserva os modelos de Inteligência Artificial baixados (Demucs e WhisperX), permitindo que reinicializações futuras sejam instantâneas.
+
+Uma vez iniciado, acesse:
+- 🌐 **Frontend (Interface Web):** [http://localhost:5173](http://localhost:5173)
+- 🔌 **Backend (Documentação Swagger):** [http://localhost:8000/docs](http://localhost:8000/docs)
+- 🩺 **Health Check:** [http://localhost:8000/api/health](http://localhost:8000/api/health)
+
+Para encerrar os containers:
+```bash
+docker compose down
+```
+
+---
+
+### 💻 Opção 2: Instalação Manual (Sem Docker)
+
+Caso prefira executar diretamente no seu ambiente local:
+
+#### Pré-requisitos:
+1. **Python 3.12** instalado *(WhisperX requer Python 3.12)*.
 2. **Node.js 18+** e **npm**.
-3. **FFmpeg** instalado e adicionado ao `PATH` do sistema (ou configurado via variável de ambiente).
+3. **FFmpeg** instalado e adicionado ao `PATH` do sistema.
    - *Windows (via winget):* `winget install Gyan.FFmpeg`
    - *Linux (Ubuntu/Debian):* `sudo apt install ffmpeg`
    - *macOS (via brew):* `brew install ffmpeg`
 
----
-
-### 1. Configurando o Backend
-
+#### 1. Configurando o Backend
 Abra um terminal na raiz do projeto:
 
 ```bash
-# 1. Acesse o diretório do backend
+# 1. Acesse a pasta do backend
 cd backend
 
-# 2. Crie o ambiente virtual com Python 3.12
+# 2. Crie e ative o ambiente virtual (Python 3.12)
 py -3.12 -m venv .venv
-# No Linux/macOS: python3.12 -m venv .venv
+.\.venv\Scripts\Activate.ps1    # No Windows PowerShell
+# source .venv/bin/activate     # No Linux/macOS
 
-# 3. Ative o ambiente virtual
-# No Windows (PowerShell):
-.\.venv\Scripts\Activate.ps1
-# No Linux/macOS:
-source .venv/bin/activate
-
-# 4. Instale as dependências básicas
+# 3. Instale as dependências
 pip install -r requirements.txt
-
-# 5. Instale os pacotes de Inteligência Artificial
 pip install -r requirements-ml.txt
 
-# 6. Inicie o servidor FastAPI
+# 4. Inicie o servidor FastAPI
 python -m uvicorn app.main:app --reload --port 8000
 ```
 
-> **Dica de GPU (Opcional):** Se possuir placa NVIDIA com suporte a CUDA, instale o PyTorch com suporte a CUDA para acelerar drasticamente o Demucs e o WhisperX. Em máquinas sem GPU dedicada, o pipeline roda automaticamente em CPU.
+> **Dica de GPU (Opcional):** Se possuir placa NVIDIA com suporte a CUDA, instale o PyTorch compatível com CUDA para acelerar a separação e transcrição. Caso contrário, a execução ocorrerá automaticamente via CPU.
 
-O backend estará ativo em: **`http://localhost:8000`**  
-Documentação Swagger interativa: **`http://localhost:8000/docs`**
-
----
-
-### 2. Configurando o Frontend
-
-Abra um **novo terminal** a partir da raiz do projeto:
+#### 2. Configurando o Frontend
+Abra um **novo terminal** na raiz do projeto:
 
 ```bash
-# 1. Acesse o diretório do frontend
+# 1. Acesse a pasta do frontend
 cd frontend
 
 # 2. Instale as dependências
